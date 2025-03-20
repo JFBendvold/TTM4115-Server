@@ -47,27 +47,27 @@ class RegistrationLogic:
         t2 = {
             'trigger' : 'submit',
             'source' : 'enter',
-            'target' : 'off',
-            'effect' : 'stop_timer("t"); cancel_timer'
+            'target' : 'verification',
+            'effect' : 'start_timer("t"); send_verification_code'
         }
 
         t3 = {
-            'trigger' : 'cancel',
-            'source' : 'enter',
-            'target' : 'on',   
+            'trigger' : 'not_verified',
+            'source' : 'verification',
+            'target' : 'verification failed',   
             'effect' : 'report_status'
         }
 
         t4 = {
-            'trigger' : 'status',
-            'source' : 'on',
-            'target' : 'on',   
+            'trigger' : 'verified',
+            'source' : 'verification',
+            'target' : 'user created',   
             'effect' : 'report_status'
         }
 
         t5 = {
-            'trigger' : 'status',
-            'source' : 'on',
+            'trigger' : 'cancel',
+            'source' : 'enter',
             'target' : 'on',   
             'effect' : 'report_status'
         }
