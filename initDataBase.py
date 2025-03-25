@@ -17,7 +17,7 @@ plain_password = 'mypassword123'
 hashed_password = bcrypt.hashpw(plain_password.encode('utf-8'), bcrypt.gensalt())
 
 # Insert user — make sure to include NULL for auto-increment id
-cursor.execute("INSERT INTO brukere VALUES (?, ?, ?)", (None, navn, hashed_password))
+cursor.execute("INSERT INTO brukere VALUES (?, ?, ?, ?)", (None, navn, hashed_password,0))
 
 # Save and close
 con.commit()

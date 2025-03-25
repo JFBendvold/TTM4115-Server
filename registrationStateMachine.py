@@ -12,93 +12,83 @@ MQTT_PORT = 1883
 MQTT_TOPIC_INPUT = 'ttm4115/team_18/command'
 MQTT_TOPIC_OUTPUT = 'ttm4115/team_18/answer'
 
-existing_timers = []
+existing_registrations = {}
+
+import sqlite3
+import bcrypt
 
 class RegistrationLogic:
-    """
-    State Machine for a named timer.
-
-    This is the support object for a state machine that models a single timer.
-    """
     def __init__(self, name, duration, component):
         self._logger = logging.getLogger(__name__)
         self.name = name
         self.duration = duration
         self.component = component
+        self.username = None
+        self.plain_password = None
+        self.verification_code = None
 
-        # TODO: build the transitions
-        # t0 initial transition off
+        states = [
+            {'name': 'idle'},
+            {'name': 'enter'},
+            {'name': 'verification'},
+            {'name': 'verification_failed'},
+            {'name': 'user_created'}
+        ]
 
-        states = [{'name' : 'idle'}, {'name' : 'enter'}, {'name' : 'verification'}, {'name' : 'verification_failed'}, {'name' : 'user_created'}]
+        
+        t0 = {'source': 'initial', 'target': 'idle', 'effect': 'prompt_registration'}
+        t1 = {'trigger': 'start_registration', 'source': 'idle', 'target': 'enter', 'effect': 'show_input_field'}
+        t3 = {'trigger': 'not_verified', 'source': 'enter', 'target': 'enter'}
+        t4 = {'trigger': 'verified', 'source': 'enter', 'target': 'user_created', 'effect': 'create_user'}
+        t5 = {'trigger': 'cancel', 'source': 'enter', 'target': 'idle'}
+        
 
-        t0 = {
-            'source' : 'initial',
-            'target' : 'idle',
-            'effect' : 'prompt_registration'
-        }
+        self.stm = stmpy.Machine(name=name, states=states, transitions=[t0,t1,t3,t4,t5], obj=self)
 
-        t1 = {
-            'trigger' : 'start_registration',
-            'source' : 'initial',
-            'target' : 'enter',
-            'effect' : 'show_input_field' 
-        }
+    def prompt_registration(self):
+        self._logger.info(f"User {self.username} prompted to register.")
 
-        t2 = {
-            'trigger' : 'submit',
-            'source' : 'enter',
-            'target' : 'verification',
-            'effect' : 'start_timer("t"); send_verification_code'
-        }
+    def show_input_field(self):
+        self._logger.info(f"User {self.username} is entering data.")
 
-        t3 = {
-            'trigger' : 'not_verified',
-            'source' : 'verification',
-            'target' : 'verification failed',   
-            'effect' : 'report_status'
-        }
+    def start_verification(self):
+        self.send_verification_code()
 
-        t4 = {
-            'trigger' : 'verified',
-            'source' : 'verification',
-            'target' : 'user created',   
-            'effect' : 'report_status'
-        }
+    def send_verification_code(self):
+        # You would store and send a real code here
+        MQTT_BROKER = 'mqtt20.iik.ntnu.no'
+        MQTT_PORT = 1883
+        MQTT_TOPIC_INPUT = 'ttm4115/team_18/command'
+        MQTT_TOPIC_OUTPUT = 'ttm4115/team_18/answer'
 
-        t5 = {
-            'trigger' : 'cancel',
-            'source' : 'enter',
-            'target' : 'on',   
-            'effect' : 'report_status'
-        }
-
-        self.stm = stmpy.Machine(name=name, transitions=[t0, t1, t2, t3], obj=self)
+        mqtt_client = mqtt.Client()
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
+        mqtt_client.loop_start()
+        payload = {"verification_code": "123test"}
+        payload = json.dumps(payload)
+        mqtt_client.publish(MQTT_TOPIC_OUTPUT, payload=payload, qos=2)
+        self._logger.info(f"Verification code sent to user {self.username} (simulated).")
+        self.verification_code = "123test"
+        
+    def get_verification_code(self):
+        return self.verification_code
     
-    # TODO define functions as transition effetcs
-    
-    def start_self(self):
-        self.stm.start_timer('t', self.duration)
-        print(f"Started timer {self.name} with duration {self.duration}")
+    def create_user(self):
+        hashed_pw = bcrypt.hashpw(self.plain_password.encode('utf-8'), bcrypt.gensalt())
+        try:
+            con = sqlite3.connect("database.db")
+            cur = con.cursor()
+            cur.execute("INSERT INTO brukere VALUES (?, ?, ?, ?)", (None, self.username, hashed_pw, 0))
+            con.commit()
+            cur.execute("SELECT * FROM brukere")
+            a = cur.fetchall()
+            print(a)
+            con.close()
+            self._logger.info(f"User {self.username} created in database.")
+        except Exception as e:
+            self._logger.error(f"Failed to insert user: {e}")
 
-    def remove_self(self):
-        existing_timers.remove(self.name)
-        print("removed: ", existing_timers)
-        message = f'Timer {self.name} complete'
-        self.component.mqtt_client.publish(MQTT_TOPIC_OUTPUT, message)
-        self.stm.terminate()
-       
-    def cancel_timer(self):
-        existing_timers.remove(self.name)
-        print("Timer cancelled", self.name)
-        message = f'Timer {self.name} cancelled'
-        self.component.mqtt_client.publish(MQTT_TOPIC_OUTPUT, message)
-        self.stm.terminate()
-    
-    def report_status(self):
-        print(f"reporting status for timer {self.name}")
-        time = int(self.stm.get_timer('t'))
-        message = f'Timer {self.name} has {time} left!'
-        self.component.mqtt_client.publish(MQTT_TOPIC_OUTPUT, message)
+
 
 class RegistrationComponent:
     """
@@ -130,82 +120,49 @@ class RegistrationComponent:
     def on_connect(self, client, userdata, flags, rc):
         # we just log that we are connected
         self._logger.debug('MQTT connected to {}'.format(client))
-
     def on_message(self, client, userdata, msg):
-        """
-        Processes incoming MQTT messages.
-
-        We assume the payload of all received MQTT messages is an UTF-8 encoded
-        string, which is formatted as a JSON object. The JSON object contains
-        a field called `command` which identifies what the message should achieve.
-
-        As a reaction to a received message, we can for example do the following:
-
-        * create a new state machine instance to handle the incoming messages,
-        * route the message to an existing state machine session,
-        * handle the message right here,
-        * throw the message away.
-
-        """
         self._logger.debug('Incoming message to topic {}'.format(msg.topic))
-
-        # TODO unwrap JSON-encoded payload
         payload = json.loads(msg.payload.decode('utf-8'))
-        
-        # TODO extract command
         command = payload['command']
+        name = payload['name']
+        
+        if command == 'register':
 
-        # TODO determine what to do
-        if command == 'new_timer':
-            self._logger.debug('Creating new timer')
-            name = payload['name']
-            duration = payload['duration']
-            # Try function to attempt to create timer, if success append to list of active timers
-            try:
-                timer = RegistrationLogic(name, duration, self)
-                self.stm_driver.add_machine(timer.stm)
-                if (existing_timers.__contains__(timer.name)) == False:
-                    existing_timers.append(timer.name)
-                    print("added: ",existing_timers)
-            except Exception as e:
-                # If timer already exists (already_exist.contain(name)), return error message
-                self._logger.error('Timer already exists', e)
-                
-        elif command == 'cancel_timer':
-            self._logger.debug('Cancelling timer')
-            name = payload['name']
-            try:
-                for t in existing_timers:
-                    if t == name:
-                        self.stm_driver.send('cancel', t)
-            except Exception as e:
-                self._logger.error('Timer does not exist', e)
-                    
-            # Try function to attempt to cancel timer, if success remove from list of active timers
-            # If timer does not exist (not_exist.contain(name)), return error message
-        elif command == 'status_all_timers':
-            self._logger.debug('Status of all timers')
-            try:
-                for timer in existing_timers:
-                    self.stm_driver.send('status', timer)
-                    self._logger.debug('Timer: ' + timer + ' ACTIVE ')
-            except:
-                self._logger.error('No active timers')
-    
-        elif command == 'status_single_timer':
-            self._logger.debug('Status of single timer')
-            name = payload['name']
-            try:
-                print("Existing timer: " + existing_timers[0])
-                if existing_timers.__contains__(name):
-                    self.stm_driver.send('status', name)
-                    self._logger.debug('Timer: ' + name + ' ACTIVE ')
-                else:
-                    self._logger.error('Timer: ' + name + ' INACTIVE ')
-            except:
-                self._logger.error('Timer: ' + name + ' INACTIVE ')
+            self._logger.debug(f'Starting registration for user: {name}')
+            duration = 60
+            registration = RegistrationLogic(name, duration, self)
+            registration.username = name
+            registration.plain_password = payload.get('password')
+
+            if registration.name not in existing_registrations.keys():
+                registration.send_verification_code()
+                existing_registrations[registration.name] = registration.get_verification_code()
+                self.stm_driver.add_machine(registration.stm)
+                self.stm_driver.send('start_registration', name)
+                print(existing_registrations)
+            else:
+                self._logger.warning(f'User {name} is already in registration process.')
+            
+        elif command == 'verify':
+            code = payload.get('code')
+            name = payload.get('name')
+            correct_code = existing_registrations[name]
+            # Simulate correct code (in real implementation you'd store and check it)
+            if code == correct_code:
+                self.stm_driver.send('verified', name)
+            else:
+                self.stm_driver.send('not_verified', name)
+
+        elif command == 'cancel':
+            if name in existing_registrations:
+                self.stm_driver.send('cancel', name)
+                existing_registrations.remove(name)
+            else:
+                self._logger.warning(f'No ongoing registration for {name}.')
+
         else:
-            self._logger.error('Unknown command')
+            self._logger.error(f'Unknown command: {command}')
+
 
 
     def __init__(self):

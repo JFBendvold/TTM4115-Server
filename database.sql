@@ -11,7 +11,9 @@
 CREATE TABLE brukere (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     navn VARCHAR(30),
-    passord VARCHAR(100)
+    passord VARCHAR(100),
+    reward INTEGER
+
 );
 
 -- Table: oppgaver
