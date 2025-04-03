@@ -1,0 +1,1 @@
+To run docker file write  docker build -t server . in the command line in the same directory as the docker file. And docker run -d -p 5000:5000 server. You need to have docker installed on the computer.
