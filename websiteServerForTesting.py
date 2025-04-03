@@ -356,7 +356,7 @@ def register():
             return jsonify({"error": "User already exists"}), 400
 
         # Store the user in the database
-        cur.execute("INSERT INTO brukere (navn, passord, reward) VALUES (?, ?, ?)", (username, hashed_password,1))
+        cur.execute("INSERT INTO brukere (navn, passord, reward) VALUES (?, ?, ?)", (username, hashed_password,0))
         conn.commit()
         conn.close()
 
@@ -415,6 +415,36 @@ def login():
     except Exception as e:
         logger.error(f"Error during login: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/get_user_reward', methods=['POST'])
+def get_user_reward():
+    try:
+        data = request.json
+        username = data.get('user')
+
+        if not username:
+            return jsonify({"error": "Username is required"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Fetch the user's reward points
+        cursor.execute("SELECT reward FROM brukere WHERE navn = ?", (username,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if result is None:
+            return jsonify({"error": "User not found"}), 404
+
+        user_reward = result[0] if result[0] is not None else 0  # Handle NoneType case
+
+        return jsonify({"reward": user_reward}), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching user reward: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 if __name__ == '__main__':
