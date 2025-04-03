@@ -3,7 +3,7 @@ import stmpy
 import logging
 from threading import Thread
 import json
-
+from secrets import token_hex
 # TODO: choose proper MQTT broker address
 MQTT_BROKER = 'mqtt20.iik.ntnu.no'
 MQTT_PORT = 1883
@@ -37,10 +37,10 @@ class RegistrationLogic:
 
         
         t0 = {'source': 'initial', 'target': 'idle', 'effect': 'prompt_registration'}
-        t1 = {'trigger': 'start_registration', 'source': 'idle', 'target': 'enter', 'effect': 'show_input_field'}
-        t3 = {'trigger': 'not_verified', 'source': 'enter', 'target': 'enter'}
-        t4 = {'trigger': 'verified', 'source': 'enter', 'target': 'user_created', 'effect': 'create_user'}
-        t5 = {'trigger': 'cancel', 'source': 'enter', 'target': 'idle'}
+        t1 = {'trigger': 'start_registration', 'source': 'idle', 'target': 'verification', 'effect': 'show_input_field'}
+        t3 = {'trigger': 'not_verified', 'source': 'verification', 'target': 'verification', 'effect': 'verification_failed'}
+        t4 = {'trigger': 'verified', 'source': 'verification', 'target': 'idle', 'effect': 'create_user'}
+        t5 = {'trigger': 'cancel', 'source': 'verification', 'target': 'idle'}
         
 
         self.stm = stmpy.Machine(name=name, states=states, transitions=[t0,t1,t3,t4,t5], obj=self)
@@ -64,12 +64,29 @@ class RegistrationLogic:
         mqtt_client = mqtt.Client()
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
         mqtt_client.loop_start()
-        payload = {"verification_code": "123test"}
+        token = token_hex(16)
+        payload = {"verification_code": token}
         payload = json.dumps(payload)
         mqtt_client.publish(MQTT_TOPIC_OUTPUT, payload=payload, qos=2)
         self._logger.info(f"Verification code sent to user {self.username} (simulated).")
-        self.verification_code = "123test"
-        
+        self.verification_code = token
+
+    def verification_failed(self):
+        MQTT_BROKER = 'mqtt20.iik.ntnu.no'
+        MQTT_PORT = 1883
+        MQTT_TOPIC_INPUT = 'ttm4115/team_18/command'
+        MQTT_TOPIC_OUTPUT = 'ttm4115/team_18/answer'
+
+        mqtt_client = mqtt.Client()
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
+        mqtt_client.loop_start()
+        payload = {"verification_failed": "Wrong verification code"}
+        payload = json.dumps(payload)
+        mqtt_client.publish(MQTT_TOPIC_OUTPUT, payload=payload, qos=2)
+        self.send_verification_code()
+
+
+
     def get_verification_code(self):
         return self.verification_code
     
@@ -150,13 +167,15 @@ class RegistrationComponent:
             # Simulate correct code (in real implementation you'd store and check it)
             if code == correct_code:
                 self.stm_driver.send('verified', name)
+                del existing_registrations[name]
             else:
+                self._logger.debug("hei")
                 self.stm_driver.send('not_verified', name)
 
         elif command == 'cancel':
             if name in existing_registrations:
                 self.stm_driver.send('cancel', name)
-                existing_registrations.remove(name)
+                del existing_registrations[name]
             else:
                 self._logger.warning(f'No ongoing registration for {name}.')
 

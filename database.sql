@@ -24,7 +24,10 @@ CREATE TABLE oppgaver (
 
 -- Table: scootere
 CREATE TABLE scootere (
-    id INTEGER PRIMARY KEY AUTOINCREMENT
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    latitude FLOAT,
+    longitude FLOAT,
+    available BOOLEAN 
 );
 
 
