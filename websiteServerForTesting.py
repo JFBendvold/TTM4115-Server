@@ -104,6 +104,94 @@ def get_scooter():
         logger.error(f"Error fetching scooters: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/take_task', methods=['POST'])
+def take_task():
+    try:
+        data = request.json
+        task_id = data.get('task_id')
+        username = data.get('user')  # Username provided in the request
+
+        if not task_id or not username:
+            return jsonify({"error": "Task ID and Username are required"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Fetch user ID from username
+        cursor.execute("SELECT id FROM brukere WHERE navn = ?", (username,))
+        user = cursor.fetchone()
+        
+        if user is None:
+            return jsonify({"error": "User does not exist"}), 404
+
+        user_id = user[0]
+
+        # Check if the task is available (not taken)
+        cursor.execute("SELECT * FROM oppgaver WHERE id = ? AND brukerid == 0", (task_id,))
+        task = cursor.fetchone()
+
+        if task is None:
+            return jsonify({"error": "Task is either taken or does not exist"}), 404
+
+        # Update the task to assign it to the user
+        cursor.execute("UPDATE oppgaver SET brukerid = ? WHERE id = ?", (user_id, task_id))
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Task {task_id} successfully taken by user {username}.")
+        return jsonify({"message": f"Task {task_id} successfully taken by user {username}"}), 200
+
+    except Exception as e:
+        logger.error(f"Error taking task: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/get_tasks', methods=['GET'])
+def get_tasks():
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Fetch all tasks with their associated scooters
+        query = """
+        SELECT oppgaver.id as task_id, oppgaver.scooterid, oppgaver.latitude as target_latitude, oppgaver.longitude as target_longitude,
+               oppgaver.reward, scootere.latitude as current_latitude, scootere.longitude as current_longitude
+        FROM oppgaver
+        INNER JOIN scootere ON oppgaver.scooterid = scootere.id
+        WHERE oppgaver.brukerid == 0;
+        """
+
+        cursor.execute(query)
+        tasks = cursor.fetchall()
+        conn.close()
+
+        # Prepare response data in the desired format
+        task_list = []
+        for task in tasks:
+            task_data = {
+                "id": task["task_id"],
+                "scooterId": str(task["scooterid"]),
+                "currentLocation": {
+                    "latitude": task["current_latitude"],
+                    "longitude": task["current_longitude"]
+                },
+                "targetLocation": {
+                    "latitude": task["target_latitude"],
+                    "longitude": task["target_longitude"]
+                },
+                "distance": calculate_distance(task["current_latitude"],task["current_longitude"],task["target_latitude"],task["target_longitude"]),  # We can calculate this if needed.
+                "reward": task["reward"]
+            }
+            task_list.append(task_data)
+
+        return jsonify({"tasks": task_list}), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching tasks: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route('/api/unlock', methods=['POST'])
@@ -172,6 +260,78 @@ def lock():
         return jsonify({"error": str(e)}), 500
 
 
+from math import radians, cos, sin, sqrt, atan2
+
+# Helper function to calculate distance between two coordinates using the Haversine formula
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371.0  # Radius of the Earth in kilometers
+
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+
+    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    distance = R * c * 1000  # Convert to meters
+    return distance
+
+
+@app.route('/api/verify_task_completion', methods=['POST'])
+def verify_task_completion():
+    try:
+        data = request.json
+        task_id = data.get('task_id')
+        username = data.get('user')
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+
+        if not task_id or not username or latitude is None or longitude is None:
+            return jsonify({"error": "Task ID, Username, latitude, and longitude are required"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Fetch user ID from username
+        cursor.execute("SELECT id, reward FROM brukere WHERE navn = ?", (username,))
+        user = cursor.fetchone()
+
+        if user is None:
+            return jsonify({"error": "User does not exist"}), 404
+
+        user_id, user_reward = user
+
+        # Fetch the task from the database
+        cursor.execute("SELECT latitude, longitude, reward FROM oppgaver WHERE id = ? AND brukerid = ?", (task_id, user_id))
+        task = cursor.fetchone()
+
+        if task is None:
+            return jsonify({"error": "Task not found or not assigned to this user"}), 404
+
+        target_latitude, target_longitude, reward = task
+
+        # Check if the provided location is within the acceptable radius (e.g., 10 meters)
+        distance = calculate_distance(target_latitude, target_longitude, latitude, longitude)
+        if distance <= 10:  # Within 10 meters radius
+            # Remove the task from the database
+            cursor.execute("DELETE FROM oppgaver WHERE id = ?", (task_id,))
+
+            # Update user reward
+            new_reward = user_reward + reward
+            cursor.execute("UPDATE brukere SET reward = ? WHERE id = ?", (new_reward, user_id))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Task {task_id} completed by user {username}. Reward added: {reward}")
+            return jsonify({"message": f"Task completed successfully. Reward added: {reward}"}), 200
+        else:
+            conn.close()
+            return jsonify({"error": f"Task completion failed. You are {distance:.2f} meters away from the target location."}), 400
+
+    except Exception as e:
+        logger.error(f"Error verifying task completion: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 
@@ -196,7 +356,7 @@ def register():
             return jsonify({"error": "User already exists"}), 400
 
         # Store the user in the database
-        cur.execute("INSERT INTO brukere (navn, passord) VALUES (?, ?)", (username, hashed_password))
+        cur.execute("INSERT INTO brukere (navn, passord, reward) VALUES (?, ?, ?)", (username, hashed_password,1))
         conn.commit()
         conn.close()
 

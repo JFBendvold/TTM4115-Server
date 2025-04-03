@@ -1,5 +1,6 @@
 import sqlite3
 import bcrypt  # Make sure to install this with: pip install bcrypt
+import random
 
 # Connect to your SQLite3 database
 con = sqlite3.connect("database.db")
@@ -20,20 +21,36 @@ hashed_password = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()
 cursor.execute("INSERT INTO brukere (navn, passord, reward) VALUES (?, ?, ?)", (admin_name, hashed_password, 0))
 
 # Add scooters
-
-import random
-
 scooters = [
     (1, 63.41535, 10.40657, True),
     (2, 63.41969, 10.40276, False),
-    (3 ,63.421977, 10.408439, True)
+    (3, 63.421977, 10.408439, True)
 ]
 
+# Generate additional scooters
+for i in range(4, 101):
+    latitude = 63.41535 + random.uniform(-0.01, 0.01)
+    longitude = 10.40657 + random.uniform(-0.01, 0.01)
+    available = random.choice([True, False])
+    scooters.append((i, latitude, longitude, available))
 
-for i in range(4,100):
-    scooters.append((i,scooters[0][1]+random.randint(-100,100)/10000,scooters[0][2]+random.randint(-100,100)/10000,True))
-
+# Insert scooters into the database
 cursor.executemany("INSERT INTO scootere (id, latitude, longitude, available) VALUES (?, ?, ?, ?)", scooters)
+
+# Add tasks (10 tasks, each connected to a different scooter)
+tasks = []
+for i in range(1, 11):  # Creating 10 tasks
+    tasks.append((
+        i,  # scooterid (connected to scooters created above)
+        0,  # brukerid (unassigned at the moment)
+        63.41535 + random.uniform(-0.005, 0.005),  # latitude
+        10.40657 + random.uniform(-0.005, 0.005),  # longitude
+        random.uniform(5.0, 20.0),  # radius in meters
+        random.randint(10, 50)  # reward points
+    ))
+
+# Insert tasks into the database
+cursor.executemany("INSERT INTO oppgaver (scooterid, brukerid, latitude, longitude, radius, reward) VALUES (?, ?, ?, ?, ?, ?)", tasks)
 
 # Commit changes and close the connection
 con.commit()
@@ -42,7 +59,10 @@ con.commit()
 cursor.execute("SELECT * FROM brukere")
 print("Users:", cursor.fetchall())
 
-cursor.execute("SELECT * FROM scootere")
-print("Scooters:", cursor.fetchall())
+cursor.execute("SELECT * FROM scootere LIMIT 10")
+print("Scooters (first 10):", cursor.fetchall())
+
+cursor.execute("SELECT * FROM oppgaver")
+print("Tasks:", cursor.fetchall())
 
 con.close()

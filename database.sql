@@ -19,7 +19,14 @@ CREATE TABLE brukere (
 -- Table: oppgaver
 CREATE TABLE oppgaver (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    destinasjon VARCHAR(30)
+    scooterid INTEGER,
+    brukerid INTEGER, 
+    latitude FLOAT,
+    longitude FLOAT,
+    radius FLOAT,
+    reward INTEGER,
+    FOREIGN KEY (scooterid) REFERENCES scootere(id) ON DELETE CASCADE,
+    FOREIGN KEY (brukerid) REFERENCES brukere(id)
 );
 
 -- Table: scootere
