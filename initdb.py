@@ -27,19 +27,13 @@ scooters = [
     (3, 63.421977, 10.408439, True)
 ]
 
-# Generate additional scooters
-for i in range(4, 101):
-    latitude = 63.41535 + random.uniform(-0.01, 0.01)
-    longitude = 10.40657 + random.uniform(-0.01, 0.01)
-    available = random.choice([True, False])
-    scooters.append((i, latitude, longitude, available))
 
 # Insert scooters into the database
 cursor.executemany("INSERT INTO scootere (id, latitude, longitude, available) VALUES (?, ?, ?, ?)", scooters)
 
 # Add tasks (10 tasks, each connected to a different scooter)
 tasks = []
-for i in range(1, 11):  # Creating 10 tasks
+for i in range(1, 5):  # Creating 10 tasks
     tasks.append((
         i,  # scooterid (connected to scooters created above)
         0,  # brukerid (unassigned at the moment)
