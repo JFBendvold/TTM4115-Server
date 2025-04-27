@@ -2,15 +2,22 @@ import paho.mqtt.client as mqtt
 import json
 import logging
 import sqlite3
+import random
 
 # MQTT Setup
 MQTT_BROKER = 'mqtt20.iik.ntnu.no'
 MQTT_PORT = 1883
-MQTT_TOPIC_INPUT = 'ttm4115/team_18/command'
+MQTT_TOPIC_STATUS = 'ttm4115/team_18/status'
+MQTT_TOPIC_COMMAND = 'ttm4115/team_18/command'
+
+# Task location base
+BASE_LATITUDE = 63.41535
+BASE_LONGITUDE = 10.40657
 
 class TaskScooterDBComponent:
     """
-    Listens for MQTT messages and updates tasks (oppgaver) or scooter availability (scootere).
+    Listens for MQTT updates, updates scooters, creates tasks, 
+    and responds to 'get_status_all' intelligently.
     """
 
     def __init__(self):
@@ -21,7 +28,11 @@ class TaskScooterDBComponent:
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
-        self.mqtt_client.subscribe(MQTT_TOPIC_INPUT)
+
+        # Subscribe to topics
+        self.mqtt_client.subscribe(MQTT_TOPIC_STATUS)
+        self.mqtt_client.subscribe(MQTT_TOPIC_COMMAND)
+
         self.mqtt_client.loop_start()
 
     def on_connect(self, client, userdata, flags, rc):
@@ -29,57 +40,104 @@ class TaskScooterDBComponent:
 
     def on_message(self, client, userdata, msg):
         try:
+            self._logger.info(f"Received message on {msg.topic}")
             payload = json.loads(msg.payload.decode('utf-8'))
-            command = payload.get("command")
 
-            if command == "new_task":
-                self._handle_new_task(payload)
-            elif command == "update_scooter":
-                self._handle_update_scooter(payload)
-            else:
-                self._logger.warning(f"Unknown command: {command}")
+            if msg.topic.endswith("/status"):
+                self._handle_status_update(payload)
+            elif msg.topic.endswith("/command"):
+                if isinstance(payload, dict) and payload.get("command") == "get_status_all":
+                    self._handle_get_status_all()
 
         except Exception as e:
             self._logger.error(f"Failed to process message: {e}")
 
-    def _handle_new_task(self, data):
+    def _handle_status_update(self, status_data):
         try:
             con = sqlite3.connect("database.db")
             cur = con.cursor()
-            cur.execute("""
-                INSERT INTO oppgaver (scooterid, brukerid, latitude, longitude, radius, reward)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                data["scooterid"],
-                data["brukerid"],
-                data["latitude"],
-                data["longitude"],
-                data["radius"],
-                data["reward"]
-            ))
-            con.commit()
-            con.close()
-            self._logger.info(f"Inserted new task for scooter {data['scooterid']}")
-        except Exception as e:
-            self._logger.error(f"Error inserting task: {e}")
 
-    def _handle_update_scooter(self, data):
+            # Reset availability
+            cur.execute("UPDATE scootere SET available = 0")
+            con.commit()
+
+            for scooter_key, statuses in status_data.items():
+                scooter_id = int(scooter_key[1:])
+
+                if "RESERVED" in statuses:
+                    self._logger.info(f"Scooter {scooter_id} is RESERVED -> unavailable")
+                    continue
+                else:
+                    cur.execute("""
+                        UPDATE scootere
+                        SET available = 1
+                        WHERE id = ?
+                    """, (scooter_id,))
+                    self._logger.info(f"Scooter {scooter_id} marked as available")
+
+                if "MUST_MOVE" in statuses:
+                    task = (
+                        scooter_id,
+                        0,
+                        BASE_LATITUDE + random.uniform(-0.005, 0.005),
+                        BASE_LONGITUDE + random.uniform(-0.005, 0.005),
+                        random.uniform(5.0, 20.0),
+                        random.randint(10, 50)
+                    )
+                    cur.execute("""
+                        INSERT INTO oppgaver (scooterid, brukerid, latitude, longitude, radius, reward)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, task)
+                    self._logger.info(f"Created task for scooter {scooter_id}")
+
+            con.commit()
+            con.close()
+
+        except Exception as e:
+            self._logger.error(f"Database update error: {e}")
+
+    def _handle_get_status_all(self):
         try:
             con = sqlite3.connect("database.db")
             cur = con.cursor()
-            cur.execute("""
-                UPDATE scootere
-                SET available = ?
-                WHERE id = ?
-            """, (
-                data["available"],
-                data["id"]
-            ))
-            con.commit()
+
+            # Fetch scooters
+            cur.execute("SELECT id, available FROM scootere")
+            scooters = cur.fetchall()
+
+            # Fetch scooters with active tasks
+            cur.execute("SELECT DISTINCT scooterid FROM oppgaver")
+            scooters_with_tasks = {row[0] for row in cur.fetchall()}
+
             con.close()
-            self._logger.info(f"Updated scooter {data['id']} availability to {data['available']}")
+
+            status_payload = {}
+
+            for scooter_id, available in scooters:
+                statuses = []
+
+                if available == 1:
+                    statuses.append("MISPARKED")
+                else:
+                    statuses.append("RESERVED")
+
+                if scooter_id in scooters_with_tasks:
+                    statuses.append("MUST_MOVE")
+
+                status_payload[f"s{scooter_id}"] = statuses
+
+            self._publish_command({"command": status_payload})
+
         except Exception as e:
-            self._logger.error(f"Error updating scooter: {e}")
+            self._logger.error(f"Failed to fetch and send status: {e}")
+
+    def _publish_command(self, payload):
+        try:
+            message = json.dumps(payload)
+            self._logger.info(f"Publishing to /command: {message}")
+            self.mqtt_client.publish(MQTT_TOPIC_COMMAND, message, qos=2)
+        except Exception as e:
+            self._logger.error(f"Failed to publish command: {e}")
 
     def stop(self):
         self.mqtt_client.loop_stop()
@@ -94,6 +152,6 @@ logging.basicConfig(
 if __name__ == '__main__':
     component = TaskScooterDBComponent()
     try:
-        input("Listening for commands... Press Enter to quit.\n")
+        input("Listening for /status and /command... Press Enter to quit.\n")
     finally:
         component.stop()
