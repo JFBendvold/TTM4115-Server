@@ -43,11 +43,11 @@ class TaskScooterDBComponent:
             self._logger.info(f"Received message on {msg.topic}")
             payload = json.loads(msg.payload.decode('utf-8'))
 
-            if msg.topic.endswith("/status"):
-                self._handle_status_update(payload)
-            elif msg.topic.endswith("/command"):
+            if msg.topic.endswith("/command"):
                 if isinstance(payload, dict) and payload.get("command") == "get_status_all":
                     self._handle_get_status_all()
+                else:
+                    self._handle_status_update(payload)
 
         except Exception as e:
             self._logger.error(f"Failed to process message: {e}")
@@ -57,14 +57,15 @@ class TaskScooterDBComponent:
             con = sqlite3.connect("database.db")
             cur = con.cursor()
 
-            # Reset availability
-            cur.execute("UPDATE scootere SET available = 0")
-            con.commit()
-
             for scooter_key, statuses in status_data.items():
                 scooter_id = int(scooter_key[1:])
 
                 if "RESERVED" in statuses:
+                    cur.execute("""
+                        UPDATE scootere
+                        SET available = 0
+                        WHERE id = ?
+                    """, (scooter_id,))
                     self._logger.info(f"Scooter {scooter_id} is RESERVED -> unavailable")
                     continue
                 else:
@@ -116,15 +117,14 @@ class TaskScooterDBComponent:
             for scooter_id, available in scooters:
                 statuses = []
 
-                if available == 1:
-                    statuses.append("MISPARKED")
-                else:
+                if available == 0:
                     statuses.append("RESERVED")
 
                 if scooter_id in scooters_with_tasks:
                     statuses.append("MUST_MOVE")
-
-                status_payload[f"s{scooter_id}"] = statuses
+                    statuses.append("MISPARKED")
+                if len(statuses) != 0:
+                     status_payload[f"s{scooter_id}"] = statuses
 
             self._publish_command({"command": status_payload})
 
@@ -134,8 +134,8 @@ class TaskScooterDBComponent:
     def _publish_command(self, payload):
         try:
             message = json.dumps(payload)
-            self._logger.info(f"Publishing to /command: {message}")
-            self.mqtt_client.publish(MQTT_TOPIC_COMMAND, message, qos=2)
+            self._logger.info(f"Publishing to /status: {message}")
+            self.mqtt_client.publish(MQTT_TOPIC_STATUS, message, qos=2)
         except Exception as e:
             self._logger.error(f"Failed to publish command: {e}")
 
@@ -151,7 +151,11 @@ logging.basicConfig(
 # Run the component
 if __name__ == '__main__':
     component = TaskScooterDBComponent()
+    print("Listening for /status and /command... Press Ctrl+C to quit.\n")
     try:
-        input("Listening for /status and /command... Press Enter to quit.\n")
+        while True:
+            pass  # or: time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
     finally:
         component.stop()

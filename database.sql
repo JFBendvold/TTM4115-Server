@@ -34,7 +34,8 @@ CREATE TABLE scootere (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     latitude FLOAT,
     longitude FLOAT,
-    available BOOLEAN 
+    available BOOLEAN, 
+    battery INTEGER
 );
 
 

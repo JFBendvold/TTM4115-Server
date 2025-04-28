@@ -19,6 +19,7 @@ def request_status():
     client.on_message = on_message
     client.connect(MQTT_BROKER, MQTT_PORT)
     client.subscribe(MQTT_TOPIC_COMMAND)
+    client.subscribe(MQTT_TOPIC_STATUS)
     client.loop_start()
 
     request = {"command": "get_status_all"}
@@ -36,10 +37,9 @@ def send_status():
     client.loop_start()
 
     payload = {
-        "s0": ["MISPARKED", "MUST_MOVE"],  # Available + must move
+        "s0": ["RESERVED","MISPARKED", "MUST_MOVE"],  # Available + must move
         "s1": ["MISPARKED"],                # Available
-        "s2": ["RESERVED"],                 # Reserved -> unavailable
-        "s3": ["MUST_MOVE"]                 # Must move
+        "s2": ["RESERVED"],                 # Reserved -> unavailable              # Must move
     }
 
     message = json.dumps(payload)

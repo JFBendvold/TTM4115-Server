@@ -3,62 +3,6 @@ import logging
 import bcrypt
 import sqlite3
 from secrets import token_hex
-import paho.mqtt.client as mqtt
-import json
-
-MQTT_BROKER = 'mqtt20.iik.ntnu.no'
-MQTT_PORT = 1883
-MQTT_TOPIC_INPUT = 'ttm4115/team_18/command'
-MQTT_TOPIC_OUTPUT = 'ttm4115/team_18/answer'
-
-class RegistrationCommandSenderComponent:
-    """
-    CLI or programmatic interface to send registration commands via MQTT.
-    """
-
-    def on_connect(self, client, userdata, flags, rc):
-        self._logger.debug(f'MQTT connected with result code {rc}')
-
-    def on_message(self, client, userdata, msg):
-        # Optional: handle messages from server if needed
-        self._logger.debug(f'Message received on topic {msg.topic}: {msg.payload.decode()}')
-
-    def __init__(self):
-        self._logger = logging.getLogger(__name__)
-        self._logger.info('Starting Registration Command Sender (no GUI)')
-
-        self.mqtt_client = mqtt.Client()
-        self.mqtt_client.on_connect = self.on_connect
-        self.mqtt_client.on_message = self.on_message
-        self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
-        self.mqtt_client.loop_start()
-
-    def publish_command(self, command: dict):
-        payload = json.dumps(command)
-        self._logger.info(f"Publishing command: {payload}")
-        self.mqtt_client.publish(MQTT_TOPIC_INPUT, payload=payload, qos=2)
-
-    def register_user(self, username: str, password: str):
-        command = {"command": "register", "name": username, "password": password}
-        self.publish_command(command)
-
-    def verify_user(self, username: str, code: str):
-        command = {"command": "verify", "name": username, "code": code}
-        self.publish_command(command)
-
-    def cancel_registration(self, username: str):
-        command = {"command": "cancel", "name": username}
-        self.publish_command(command)
-
-    def stop(self):
-        self.mqtt_client.loop_stop()
-
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)-12s - %(levelname)-8s - %(message)s'
-)
-
 
 app = Flask(__name__)
 
@@ -150,7 +94,8 @@ def get_scooter():
                 "id": sco["id"],
                 "latitude": sco["latitude"],
                 "longitude": sco["longitude"],
-                "available": bool(sco["available"])
+                "available": bool(sco["available"]),
+                "battery": sco["battery"]
             }
             scooter_list.append(scooter_data)
 

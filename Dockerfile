@@ -23,4 +23,8 @@ EXPOSE 5000
 RUN python3 initdb.py
 
 # Run the Flask app
-CMD ["python", "websiteServerForTesting.py"]
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"]
+
