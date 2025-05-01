@@ -76,7 +76,12 @@ class TaskScooterDBComponent:
                     """, (scooter_id,))
                     self._logger.info(f"Scooter {scooter_id} marked as available")
 
-                if "MUST_MOVE" in statuses:
+            if "MUST_MOVE" in statuses:
+                # Check if a task already exists for this scooter
+                cur.execute("SELECT 1 FROM oppgaver WHERE scooterid = ?", (scooter_id,))
+                task_exists = cur.fetchone()
+
+                if not task_exists:
                     task = (
                         scooter_id,
                         0,
@@ -90,6 +95,9 @@ class TaskScooterDBComponent:
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, task)
                     self._logger.info(f"Created task for scooter {scooter_id}")
+                else:
+                    self._logger.info(f"Task already exists for scooter {scooter_id}, skipping creation.")
+
 
             con.commit()
             con.close()
@@ -126,7 +134,7 @@ class TaskScooterDBComponent:
                 if len(statuses) != 0:
                      status_payload[f"s{scooter_id}"] = statuses
 
-            self._publish_command({"command": status_payload})
+            self._publish_command(status_payload)
 
         except Exception as e:
             self._logger.error(f"Failed to fetch and send status: {e}")

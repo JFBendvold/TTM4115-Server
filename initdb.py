@@ -22,8 +22,8 @@ cursor.execute("INSERT INTO brukere (navn, passord, reward) VALUES (?, ?, ?)", (
 
 # Add scooters
 scooters = [
-    (0, 63.41536, 10.40658, False, 50),
-    (1, 63.41720, 10.40640, False, 70),
+    (0, 63.41536, 10.40658, True, 50),
+    (1, 63.41720, 10.40640, True, 70),
     (2, 63.41969, 10.40276, True, 60),
     (3, 63.421977, 10.408439, True, 80)
 ]
@@ -33,19 +33,19 @@ scooters = [
 cursor.executemany("INSERT INTO scootere (id, latitude, longitude, available, battery) VALUES (?, ?, ?, ?, ?)", scooters)
 
 # Add tasks (10 tasks, each connected to a different scooter)
-tasks = []
-for i in range(1, 4):  # Creating 10 tasks
-    tasks.append((
-        i,  # scooterid (connected to scooters created above)
-        0,  # brukerid (unassigned at the moment)
-        63.41535 + random.uniform(-0.005, 0.005),  # latitude
-        10.40657 + random.uniform(-0.005, 0.005),  # longitude
-        random.uniform(5.0, 20.0),  # radius in meters
-        random.randint(10, 50)  # reward points
-    ))
+# tasks = []
+# for i in range(1, 4):  # Creating 10 tasks
+#     tasks.append((
+#         i,  # scooterid (connected to scooters created above)
+#         0,  # brukerid (unassigned at the moment)
+#         63.41535 + random.uniform(-0.005, 0.005),  # latitude
+#         10.40657 + random.uniform(-0.005, 0.005),  # longitude
+#         random.uniform(5.0, 20.0),  # radius in meters
+#         random.randint(10, 50)  # reward points
+#     ))
 
 # Insert tasks into the database
-cursor.executemany("INSERT INTO oppgaver (scooterid, brukerid, latitude, longitude, radius, reward) VALUES (?, ?, ?, ?, ?, ?)", tasks)
+# cursor.executemany("INSERT INTO oppgaver (scooterid, brukerid, latitude, longitude, radius, reward) VALUES (?, ?, ?, ?, ?, ?)", tasks)
 
 # Commit changes and close the connection
 con.commit()
